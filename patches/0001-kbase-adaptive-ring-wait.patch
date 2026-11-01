@@ -1,0 +1,41 @@
+diff --git a/src/panfrost/lib/kmod/kbase_kmod.c b/src/panfrost/lib/kmod/kbase_kmod.c
+index 17eaf5c..be606a8 100644
+--- a/src/panfrost/lib/kmod/kbase_kmod.c
++++ b/src/panfrost/lib/kmod/kbase_kmod.c
+@@ -29,6 +29,7 @@
+ #include <string.h>
+ #include <assert.h>
+ #include <poll.h>
++#include <sched.h>
+ #include <sys/ioctl.h>
+ #include <sys/mman.h>
+ #include <unistd.h>
+@@ -2642,15 +2643,26 @@ static bool
+ kbase_csf_ring_reserve(struct pan_kmod_kbase_csf_group *g, struct kbase_csf_ring *r,
+                        unsigned bytes)
+ {
++   /* Adaptive wait: the firmware usually frees space within microseconds, so yield the CPU for
++    * a while first, then back off from 20 us up to 200 us. Gives up after 10 s, as before. */
++   struct timespec t0 = {0};
+    for (unsigned spins = 0; r->insert + bytes - r->output[0] > KBASE_CSF_RING_SIZE; spins++) {
+       if (g->faulted)
+          return false;
+-      if (spins > 200000) {
++      if (spins == 0)
++         clock_gettime(CLOCK_MONOTONIC, &t0);
++      if (spins < 64) {
++         sched_yield();
++         continue;
++      }
++      struct timespec now;
++      clock_gettime(CLOCK_MONOTONIC, &now);
++      if ((now.tv_sec - t0.tv_sec) * 1000000000ll + (now.tv_nsec - t0.tv_nsec) > 10000000000ll) {
+          mesa_loge("kbase: a ring stayed full for 10 s (insert %" PRIu64 ", extract %" PRIu64 ")",
+                    r->insert, (uint64_t)r->output[0]);
+          return false;
+       }
+-      usleep(50);
++      usleep(MIN2(20 + 10 * (spins - 64), 200));
+    }
+    return true;
+ }
