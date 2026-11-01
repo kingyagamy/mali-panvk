@@ -8,7 +8,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -29,11 +29,27 @@ jobs:
           chmod +x llvm.sh
           sudo ./llvm.sh 21
           sudo apt-get update
-          sudo apt-get install -y llvm-21-dev libclang-21-dev libclc-21-dev \
-            libllvmspirvlib-21-dev clang-21 llvm-spirv-21 || \
-          sudo apt-get install -y llvm-21-dev libclang-21-dev libclc-21-dev \
-            libllvmspirvlib-21-dev clang-21
+          sudo apt-get install -y llvm-21-dev libclang-21-dev libclang-cpp21-dev \
+            libclc-21-dev clang-21 libzstd-dev
           echo "/usr/lib/llvm-21/bin" >> "$GITHUB_PATH"
+
+      - name: Compilar SPIRV-LLVM-Translator 21
+        run: |
+          sudo apt-get install -y cmake ninja-build git
+          git clone --depth 1 -b llvm_release_210 \
+            https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git /tmp/spirv-tr || \
+          git clone --depth 1 -b v21.1.0 \
+            https://github.com/KhronosGroup/SPIRV-LLVM-Translator.git /tmp/spirv-tr
+          git clone --depth 1 https://github.com/KhronosGroup/SPIRV-Headers.git /tmp/spirv-headers
+          cmake -S /tmp/spirv-tr -B /tmp/spirv-tr/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX=/usr/local \
+            -DLLVM_DIR=/usr/lib/llvm-21/lib/cmake/llvm \
+            -DLLVM_EXTERNAL_SPIRV_HEADERS_SOURCE_DIR=/tmp/spirv-headers \
+            -DLLVM_SPIRV_INCLUDE_TESTS=OFF
+          ninja -C /tmp/spirv-tr/build
+          sudo ninja -C /tmp/spirv-tr/build install
+          sudo ldconfig
 
       - name: Instalar herramientas de compilacion
         run: |
